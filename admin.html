@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="om">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Admin</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 min-h-screen p-4">
+<main class="max-w-2xl mx-auto space-y-4">
+  <div class="bg-white rounded-2xl shadow p-4 flex items-center justify-between gap-2">
+    <div>
+      <h1 class="text-lg font-bold text-teal-800">Dashboard – <span id="secName"></span></h1>
+      <p id="who" class="text-xs text-gray-500"></p>
+    </div>
+    <button id="out" class="border rounded-lg px-3 py-2 text-sm">Ba'i</button>
+  </div>
+
+  <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+    <div class="flex gap-2 items-center">
+      <input id="date" type="date" class="border rounded-lg p-2">
+      <button id="csv" class="border rounded-lg px-3 py-2 text-sm">CSV buusi</button>
+    </div>
+    <div class="grid grid-cols-3 gap-2 text-center text-sm">
+      <div class="bg-slate-50 rounded-lg p-2"><b id="nAll" class="text-lg block">0</b>Waliigala</div>
+      <div class="bg-green-50 rounded-lg p-2"><b id="nP" class="text-lg block text-green-700">0</b>Argame</div>
+      <div class="bg-red-50 rounded-lg p-2"><b id="nA" class="text-lg block text-red-600">0</b>Hin argamne</div>
+    </div>
+    <div id="list" class="space-y-2"></div>
+  </div>
+
+  <form id="addF" class="bg-white rounded-2xl shadow p-4 flex gap-2">
+    <input id="newName" required placeholder="Maqaa hojjettaa haaraa" class="flex-1 border rounded-lg p-2 min-w-0">
+    <button class="bg-teal-700 text-white rounded-lg px-4">Dabali</button>
+  </form>
+  <p id="msg" role="alert" class="text-sm text-center text-red-600"></p>
+</main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, getDoc, addDoc, deleteDoc, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { firebaseConfig } from "./js/firebase-config.js";
+
+const app = initializeApp(firebaseConfig), auth = getAuth(app), db = getFirestore(app);
+const $ = id => document.getElementById(id);
+const sec = localStorage.getItem("kiosk_sector_id");
+const NAMES = { sec_water:"Bishaanii fi Inarjii", sec_health:"Fayyaa", sec_edu:"Barnootaa", sec_agri:"Qonnaa" };
+const d0 = new Date();
+$("date").value = d0.getFullYear()+"-"+String(d0.getMonth()+1).padStart(2,"0")+"-"+String(d0.getDate()).padStart(2,"0");
+$("secName").textContent = NAMES[sec] || sec;
+let emps = [], att = {};
+
+onAuthStateChanged(auth, async user => {
+  if (!user || !sec) { location.href = "./index.html"; return; }
+  const a = await getDoc(doc(db, "admins", user.uid));
+  if (!a.exists() || a.data().active !== true) { await signOut(auth); location.href = "./index.html"; return; }
+  $("who").textContent = user.email + " · " + a.data().role;
+  load();
+});
+
+async function load() {
+  try {
+    $("msg").textContent = "";
+    const es = await getDocs(query(collection(db, "employees"), where("sectorId", "==", sec)));
+    emps = es.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.name.localeCompare(b.name));
+    const as = await getDocs(query(collection(db, "attendance"), where("sectorId", "==", sec), where("date", "==", $("date").value)));
+    att = {}; as.docs.forEach(d => att[d.data().employeeId] = d.data());
+    render();
+  } catch (e) { $("msg").textContent = "Dogoggora: " + (e.code || e.message); }
+}
+
+function render() {
+  const L = $("list"); L.innerHTML = "";
+  let p = 0;
+  if (!emps.length) L.innerHTML = '<p class="text-center text-gray-500 text-sm p-4">Hojjettaan hin jiru. Armaan gaditti dabali.</p>';
+  emps.forEach(e => {
+    const r = att[e.id]; if (r) p++;
+    const row = document.createElement("div");
+    row.className = "flex items-center gap-3 border rounded-lg p-2";
+    row.innerHTML = `<img class="w-10 h-10 rounded object-cover bg-slate-200"><div class="flex-1 min-w-0"><b class="block truncate"></b><small></small></div><button class="text-gray-400 px-2" aria-label="Haqi">✕</button>`;
+    const img = row.querySelector("img");
+    if (r && r.photo) img.src = r.photo; else img.removeAttribute("src");
+    row.querySelector("b").textContent = e.name;
+    const sm = row.querySelector("small");
+    if (r) { const t = r.createdAt && r.createdAt.toDate ? r.createdAt.toDate().toLocaleTimeString() : ""; sm.textContent = "Argameera " + t + (r.fingerprint ? " · qubatti ✓" : " · suuraa qofa"); sm.className = "text-green-700"; }
+    else { sm.textContent = "Hin argamne"; sm.className = "text-red-600"; }
+    row.querySelector("button").onclick = async () => {
+      if (!confirm(e.name + " haquu?")) return;
+      try { await deleteDoc(doc(db, "employees", e.id)); load(); } catch (x) { $("msg").textContent = "Haquu hin danda'amne."; }
+    };
+    L.appendChild(row);
+  });
+  $("nAll").textContent = emps.length; $("nP").textContent = p; $("nA").textContent = emps.length - p;
+}
+
+$("date").onchange = load;
+$("addF").onsubmit = async ev => {
+  ev.preventDefault();
+  try { await addDoc(collection(db, "employees"), { name: $("newName").value.trim(), sectorId: sec, active: true }); $("newName").value = ""; load(); }
+  catch (e) { $("msg").textContent = "Dabaluun hin danda'amne: " + (e.code || e.message); }
+};
+$("out").onclick = async () => { await signOut(auth); location.href = "./index.html"; };
+
+$("csv").onclick = () => {
+  const q = v => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+  const rows = [["Guyyaa","Kutaa","Maqaa","Haala","Qubatti"]];
+  emps.forEach(e => { const r = att[e.id]; rows.push([$("date").value, NAMES[sec] || sec, e.name, r ? "Argame" : "Hin argamne", r ? (r.fingerprint ? "eeyyee" : "hin") : ""]); });
+  const blob = new Blob(["\ufeff" + rows.map(r => r.map(q).join(",")).join("\n")], { type: "text/csv" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "argama-" + $("date").value + ".csv"; a.click();
+};
+</script>
+</body>
+</html>

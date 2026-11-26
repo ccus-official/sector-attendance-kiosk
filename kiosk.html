@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="om">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kiosk Hojjettootaa</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
+<main class="bg-white rounded-2xl shadow-lg w-full max-w-md p-6 space-y-4">
+  <h1 class="text-xl font-bold text-teal-800 text-center">Kiosk – <span id="secName"></span></h1>
+
+  <form id="kLogin" class="space-y-3 hidden">
+    <input id="kEmail" type="email" required placeholder="Email Kiosk" class="w-full border rounded-lg p-3">
+    <input id="kPass" type="password" required placeholder="Password Kiosk" class="w-full border rounded-lg p-3">
+    <button class="w-full bg-blue-700 text-white rounded-lg p-3">Kiosk seensi</button>
+  </form>
+
+  <section id="main" class="space-y-3 hidden">
+    <select id="emp" class="w-full border rounded-lg p-3"></select>
+    <video id="vid" autoplay playsinline muted class="w-full rounded-lg bg-black aspect-[4/3] object-cover" style="transform:scaleX(-1)"></video>
+    <button id="go" class="w-full bg-teal-700 text-white font-semibold rounded-lg p-3">📷🖐 Suuraa + qubatti mallatteessi</button>
+    <button id="photoOnly" class="w-full border rounded-lg p-2 text-sm hidden">Suuraa qofa mallatteessi</button>
+  </section>
+
+  <p id="msg" role="alert" class="text-sm text-center break-words"></p>
+  <a href="./index.html" class="block text-xs text-gray-400 text-center">← Duubatti</a>
+</main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { firebaseConfig } from "./js/firebase-config.js";
+
+const app = initializeApp(firebaseConfig), auth = getAuth(app), db = getFirestore(app);
+const $ = id => document.getElementById(id);
+const sec = localStorage.getItem("kiosk_sector_id");
+const NAMES = { sec_water:"Bishaanii fi Inarjii", sec_health:"Fayyaa", sec_edu:"Barnootaa", sec_agri:"Qonnaa" };
+if (!sec) location.href = "./index.html";
+$("secName").textContent = NAMES[sec] || sec;
+
+const say = (t, e) => { $("msg").textContent = t; $("msg").className = "text-sm text-center break-words " + (e ? "text-red-600" : "text-green-700"); };
+const today = () => { const d = new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+const bytes = n => crypto.getRandomValues(new Uint8Array(n));
+const b64 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
+const unb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0)).buffer;
+
+let emps = [], stream = null;
+
+onAuthStateChanged(auth, async user => {
+  if (!user) { $("kLogin").classList.remove("hidden"); $("main").classList.add("hidden"); return; }
+  try {
+    const k = await getDoc(doc(db, "kiosks", user.uid));
+    if (!k.exists() || k.data().sectorId !== sec) throw new Error("Kiosk kun damee kanaaf hin hayyamamne.");
+    $("kLogin").classList.add("hidden"); $("main").classList.remove("hidden");
+    const snap = await getDocs(query(collection(db, "employees"), where("sectorId", "==", sec)));
+    emps = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.active !== false).sort((a,b) => a.name.localeCompare(b.name));
+    $("emp").innerHTML = emps.length ? emps.map(e => `<option value="${e.id}"></option>`).join("") : "<option>Hojjettaan hin jiru</option>";
+    [...$("emp").options].forEach((o, i) => { if (emps[i]) o.textContent = emps[i].name; });
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+    $("vid").srcObject = stream;
+  } catch (e) { say(e.message || "Dogoggora", true); }
+});
+
+$("kLogin").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  try { await signInWithEmailAndPassword(auth, $("kEmail").value.trim(), $("kPass").value); }
+  catch (e) { say("Email ykn Password sirrii miti.", true); }
+});
+
+function snap() {
+  const v = $("vid"); if (!v.videoWidth) return "";
+  const c = document.createElement("canvas"); c.width = 240; c.height = Math.round(240 * v.videoHeight / v.videoWidth);
+  const x = c.getContext("2d"); x.translate(c.width, 0); x.scale(-1, 1); x.drawImage(v, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", .6);
+}
+
+async function finger(empId) {
+  if (!window.PublicKeyCredential) throw new Error("Browser kun qubatti hin deeggaru.");
+  const key = "cred_" + empId, saved = localStorage.getItem(key);
+  if (!saved) {
+    const e = emps.find(x => x.id === empId);
+    const c = await navigator.credentials.create({ publicKey: { challenge: bytes(32), rp: { name: "Mallatteessa" },
+      user: { id: bytes(16), name: e.name, displayName: e.name },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" }, timeout: 60000 } });
+    localStorage.setItem(key, b64(c.rawId));
+  } else {
+    await navigator.credentials.get({ publicKey: { challenge: bytes(32), userVerification: "required", timeout: 60000,
+      allowCredentials: [{ type: "public-key", id: unb64(saved) }] } });
+  }
+}
+
+async function mark(fp, img) {
+  const empId = $("emp").value, e = emps.find(x => x.id === empId);
+  if (!e) return say("Hojjetaa filadhu.", true);
+  try {
+    await setDoc(doc(db, "attendance", `${sec}_${today()}_${empId}`), {
+      sectorId: sec, employeeId: empId, name: e.name, date: today(), status: "present",
+      fingerprint: fp, photo: img, createdAt: serverTimestamp()
+    });
+    say(`${e.name} argameera ✓`);
+  } catch (err) {
+    say(err.code === "permission-denied" ? "Har'a duraanuu mallatteeffatteetta." : "Dogoggora: " + err.message, true);
+  }
+}
+
+let shot = "";
+$("go").onclick = async () => {
+  const empId = $("emp").value; shot = snap();
+  say("Qubatti kee tuqi...");
+  try { await finger(empId); await mark(true, shot); }
+  catch (e) { say("Qubatti hin mirkanoofne: " + (e.message || ""), true); $("photoOnly").classList.remove("hidden"); }
+};
+$("photoOnly").onclick = () => { mark(false, shot || snap()); $("photoOnly").classList.add("hidden"); };
+</script>
+</body>
+</html>
