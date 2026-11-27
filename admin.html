@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard Admin</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 </head>
 <body class="bg-slate-100 min-h-screen p-4">
 <main class="max-w-2xl mx-auto space-y-4">
@@ -34,7 +33,7 @@
     <h2 class="font-bold text-gray-800">QR Mallatteessaa</h2>
     <p class="text-xs text-gray-500">QR kun daqiiqaa tokkoon jijjiirama. Screen waajjira dura kaa'ii, hojjettoonni foonii isaaniitiin scan godhu.</p>
     <div class="flex gap-2"><button id="qrOn" class="bg-blue-700 text-white rounded-lg px-4 py-2 text-sm">QR Argaasi</button><button id="qrOff" class="border rounded-lg px-4 py-2 text-sm">QR Dhaabi</button></div>
-    <div id="qrBox" class="hidden text-center"><canvas id="qrc" class="mx-auto"></canvas><p class="text-xs text-gray-500 mt-2">Daqiiqaa 1 keessatti ofumaan haaromfama</p></div>
+    <div id="qrBox" class="hidden text-center"><div id="qrc" class="flex justify-center"></div><p class="text-xs text-gray-500 mt-2">Daqiiqaa 1 keessatti ofumaan haaromfama</p></div>
   </div>
 
   <form id="addF" class="bg-white rounded-2xl shadow p-4 space-y-2">
@@ -116,11 +115,22 @@ $("addF").onsubmit = async ev => {
 };
 
 let qrTimer = null;
+function loadJs(u) { return new Promise((ok, no) => { const t = document.createElement("script"); t.src = u; t.onload = ok; t.onerror = no; document.head.appendChild(t); }); }
+async function ensureQR() {
+  if (window.QRCode) return;
+  for (const u of ["https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js", "https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"]) {
+    try { await loadJs(u); if (window.QRCode) return; } catch (e) {}
+  }
+  throw new Error("QR library fe'amuu hin dandeenye. Internet ilaali.");
+}
 async function qrTick() {
   const tok = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, "0")).join("");
   await setDoc(doc(db, "qr", sec), { sectorId: sec, token: tok, exp: Date.now() + 90000 });
   const url = new URL("scan.html?s=" + sec + "&t=" + tok, location.href).href;
-  QRCode.toCanvas($("qrc"), url, { width: 240 }, () => {});
+  await ensureQR();
+  const box = $("qrc"); box.innerHTML = "";
+  if (QRCode.toCanvas) { const c = document.createElement("canvas"); box.appendChild(c); QRCode.toCanvas(c, url, { width: 240 }, () => {}); }
+  else { new QRCode(box, { text: url, width: 240, height: 240 }); }
 }
 $("qrOn").onclick = async () => {
   try { await qrTick(); } catch (e) { $("msg").textContent = "QR hin uumamne: " + (e.code || e.message); return; }
