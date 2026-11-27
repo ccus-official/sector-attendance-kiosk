@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard Admin</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 </head>
 <body class="bg-slate-100 min-h-screen p-4">
 <main class="max-w-2xl mx-auto space-y-4">
@@ -29,16 +30,26 @@
     <div id="list" class="space-y-2"></div>
   </div>
 
-  <form id="addF" class="bg-white rounded-2xl shadow p-4 flex gap-2">
-    <input id="newName" required placeholder="Maqaa hojjettaa haaraa" class="flex-1 border rounded-lg p-2 min-w-0">
-    <button class="bg-teal-700 text-white rounded-lg px-4">Dabali</button>
+  <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+    <h2 class="font-bold text-gray-800">QR Mallatteessaa</h2>
+    <p class="text-xs text-gray-500">QR kun daqiiqaa tokkoon jijjiirama. Screen waajjira dura kaa'ii, hojjettoonni foonii isaaniitiin scan godhu.</p>
+    <div class="flex gap-2"><button id="qrOn" class="bg-blue-700 text-white rounded-lg px-4 py-2 text-sm">QR Argaasi</button><button id="qrOff" class="border rounded-lg px-4 py-2 text-sm">QR Dhaabi</button></div>
+    <div id="qrBox" class="hidden text-center"><canvas id="qrc" class="mx-auto"></canvas><p class="text-xs text-gray-500 mt-2">Daqiiqaa 1 keessatti ofumaan haaromfama</p></div>
+  </div>
+
+  <form id="addF" class="bg-white rounded-2xl shadow p-4 space-y-2">
+    <h2 class="font-bold text-gray-800">Hojjettaa Haaraa</h2>
+    <input id="newCode" required placeholder="Koodii (fkn E001)" maxlength="20" pattern="[A-Za-z0-9_-]+" class="w-full border rounded-lg p-2">
+    <input id="newName" required placeholder="Maqaa hojjettaa" class="w-full border rounded-lg p-2">
+    <input id="newPin" required placeholder="PIN (lakkoofsa 4–6)" inputmode="numeric" pattern="[0-9]{4,6}" class="w-full border rounded-lg p-2">
+    <button class="w-full bg-teal-700 text-white rounded-lg p-2">Dabali</button>
   </form>
   <p id="msg" role="alert" class="text-sm text-center text-red-600"></p>
 </main>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, doc, getDoc, addDoc, deleteDoc, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig), auth = getAuth(app), db = getFirestore(app);
@@ -80,13 +91,13 @@ function render() {
     row.innerHTML = `<img class="w-10 h-10 rounded object-cover bg-slate-200"><div class="flex-1 min-w-0"><b class="block truncate"></b><small></small></div><button class="text-gray-400 px-2" aria-label="Haqi">✕</button>`;
     const img = row.querySelector("img");
     if (r && r.photo) img.src = r.photo; else img.removeAttribute("src");
-    row.querySelector("b").textContent = e.name;
+    row.querySelector("b").textContent = e.name + " (" + e.id + ")";
     const sm = row.querySelector("small");
-    if (r) { const t = r.createdAt && r.createdAt.toDate ? r.createdAt.toDate().toLocaleTimeString() : ""; sm.textContent = "Argameera " + t + (r.fingerprint ? " · qubatti ✓" : " · suuraa qofa"); sm.className = "text-green-700"; }
+    if (r) { const t = r.createdAt && r.createdAt.toDate ? r.createdAt.toDate().toLocaleTimeString() : ""; sm.textContent = "Argameera " + t + (r.method === "qr" ? " · QR" : (r.fingerprint ? " · qubatti ✓" : " · suuraa qofa")); sm.className = "text-green-700"; }
     else { sm.textContent = "Hin argamne"; sm.className = "text-red-600"; }
     row.querySelector("button").onclick = async () => {
       if (!confirm(e.name + " haquu?")) return;
-      try { await deleteDoc(doc(db, "employees", e.id)); load(); } catch (x) { $("msg").textContent = "Haquu hin danda'amne."; }
+      try { await deleteDoc(doc(db, "employees", e.id)); try { await deleteDoc(doc(db, "pins", sec + "_" + e.id)); } catch (z) {} load(); } catch (x) { $("msg").textContent = "Haquu hin danda'amne."; }
     };
     L.appendChild(row);
   });
@@ -96,8 +107,29 @@ function render() {
 $("date").onchange = load;
 $("addF").onsubmit = async ev => {
   ev.preventDefault();
-  try { await addDoc(collection(db, "employees"), { name: $("newName").value.trim(), sectorId: sec, active: true }); $("newName").value = ""; load(); }
-  catch (e) { $("msg").textContent = "Dabaluun hin danda'amne: " + (e.code || e.message); }
+  const code = $("newCode").value.trim().toUpperCase();
+  try {
+    await setDoc(doc(db, "employees", code), { name: $("newName").value.trim(), sectorId: sec, active: true });
+    await setDoc(doc(db, "pins", sec + "_" + code), { sectorId: sec, pin: $("newPin").value.trim() });
+    $("newCode").value = ""; $("newName").value = ""; $("newPin").value = ""; load();
+  } catch (e) { $("msg").textContent = "Dabaluun hin danda'amne: " + (e.code || e.message); }
+};
+
+let qrTimer = null;
+async function qrTick() {
+  const tok = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, "0")).join("");
+  await setDoc(doc(db, "qr", sec), { sectorId: sec, token: tok, exp: Date.now() + 90000 });
+  const url = new URL("scan.html?s=" + sec + "&t=" + tok, location.href).href;
+  QRCode.toCanvas($("qrc"), url, { width: 240 }, () => {});
+}
+$("qrOn").onclick = async () => {
+  try { await qrTick(); } catch (e) { $("msg").textContent = "QR hin uumamne: " + (e.code || e.message); return; }
+  $("qrBox").classList.remove("hidden"); clearInterval(qrTimer);
+  qrTimer = setInterval(() => qrTick().catch(() => {}), 60000);
+};
+$("qrOff").onclick = async () => {
+  clearInterval(qrTimer); $("qrBox").classList.add("hidden");
+  try { await setDoc(doc(db, "qr", sec), { sectorId: sec, token: "off", exp: 0 }); } catch (e) {}
 };
 $("out").onclick = async () => { await signOut(auth); location.href = "./index.html"; };
 
