@@ -1,1 +1,150 @@
-<!-- Fayyadami: fayyilii index.html kee mataa kee asitti kaa'i (jijjiirama hin barbaachisu). -->
+<!DOCTYPE html>
+<html lang="om">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sirna Argama Hojjettootaa</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
+<main class="bg-white rounded-2xl shadow-lg w-full max-w-md p-6">
+
+  <div class="text-center mb-6">
+    <div class="text-4xl mb-2">🏢</div>
+    <h1 class="text-2xl font-bold text-teal-800">Sirna Argama Hojjettootaa</h1>
+    <p class="text-sm text-gray-500 mt-2">Sector Employee Attendance Management System</p>
+  </div>
+
+  <div class="mb-5">
+    <label class="block font-semibold text-sm mb-2">Damee Hojii</label>
+    <select id="sectorSelect" class="w-full border rounded-lg p-3">
+      <option value="sec_water">Waajjira Bishaanii fi Inarjii</option>
+      <option value="sec_health">Waajjira Fayyaa</option>
+      <option value="sec_edu">Waajjira Barnootaa</option>
+      <option value="sec_agri">Waajjira Qonnaa</option>
+    </select>
+  </div>
+
+  <form id="loginForm" class="space-y-4">
+    <div>
+      <label class="block font-semibold text-sm mb-2">Email Admin</label>
+      <input id="email" type="email" required autocomplete="username" placeholder="Email Admin" class="w-full border rounded-lg p-3">
+    </div>
+    <div>
+      <label class="block font-semibold text-sm mb-2">Password</label>
+      <input id="password" type="password" required autocomplete="current-password" placeholder="Password kee galchi" class="w-full border rounded-lg p-3">
+    </div>
+    <button id="loginButton" type="submit" class="w-full bg-teal-700 text-white font-semibold rounded-lg p-3">Seeni</button>
+  </form>
+
+  <p id="message" role="alert" class="text-sm text-center mt-4 break-words"></p>
+
+  <div class="border-t mt-6 pt-5">
+    <h2 class="font-bold text-gray-800 text-center">Kiosk Hojjettootaa</h2>
+    <p class="text-xs text-gray-500 text-center mt-1 mb-3">Kiosk device login adda qaba.</p>
+    <button id="kioskButton" class="w-full bg-blue-700 text-white rounded-lg p-3">Kiosk Bani</button>
+  </div>
+
+  <p class="text-xs text-gray-400 text-center mt-6">© Sirna Argama Hojjettootaa</p>
+</main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { firebaseConfig } from "./js/firebase-config.js";
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const $ = id => document.getElementById(id);
+
+const sectors = ["sec_water", "sec_health", "sec_edu", "sec_agri"];
+
+function showMessage(message, error = false) {
+  $("message").textContent = message;
+  $("message").className = "text-sm text-center mt-4 break-words " + (error ? "text-red-600" : "text-green-700");
+}
+
+function translateError(error) {
+  const code = error.code || "";
+  const errors = {
+    "auth/invalid-email": "Email sirrii miti.",
+    "auth/invalid-credential": "Email ykn Password sirrii miti.",
+    "auth/user-not-found": "Account kana hin argamne.",
+    "auth/wrong-password": "Password sirrii miti.",
+    "auth/too-many-requests": "Yaalii baay'ee goote. Yeroo muraasa booda irra deebi'i.",
+    "auth/network-request-failed": "Internet kee mirkaneessi.",
+    "auth/unauthorized-domain": "Domain app kanaa Firebase Authentication keessatti hin hayyamamne.",
+    "permission-denied": "Firestore Rules hayyama hin kennine. Rules ilaali.",
+    "unavailable": "Firebase server argachuu hin dandeenye. Internet mirkaneessi."
+  };
+  return errors[code] || "Dogoggora: " + (error.message || code || "Hin beekamne");
+}
+
+// ADMIN LOGIN
+$("loginForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const email = $("email").value.trim();
+  const password = $("password").value;
+  const selectedSector = $("sectorSelect").value;
+
+  if (!sectors.includes(selectedSector)) {
+    showMessage("Damee hojii sirrii filadhu.", true);
+    return;
+  }
+
+  const button = $("loginButton");
+  button.disabled = true;
+  button.textContent = "Seenaa jira...";
+  showMessage("Firebase waliin wal qunnamaa jira...");
+
+  try {
+    const credential = await signInWithEmailAndPassword(auth, email, password);
+    const user = credential.user;
+    showMessage("Admin account mirkaneessaa jira...");
+
+    const adminSnap = await getDoc(doc(db, "admins", user.uid));
+    if (!adminSnap.exists()) {
+      throw new Error("Admin document hin argamne. Document ID fi Authentication UID wal bira qabi.");
+    }
+    const admin = adminSnap.data();
+
+    if (admin.active !== true) throw new Error("Admin account hojii irra hin jiru.");
+    if (admin.role !== "super_admin" && admin.role !== "sector_admin") throw new Error("Role Admin sirrii miti.");
+
+    if (admin.role === "sector_admin" && admin.sectorId !== selectedSector) {
+      throw new Error("Damee hojii filatte aangoo Admin kanaa waliin wal hin simu.");
+    }
+    if (admin.role === "super_admin" && admin.sectorId && admin.sectorId !== "all" && admin.sectorId !== selectedSector) {
+      throw new Error("Damee hojii kanaaf aangoo hin qabdu.");
+    }
+
+    localStorage.setItem("kiosk_sector_id", selectedSector);
+    localStorage.setItem("admin_role", admin.role);
+    localStorage.setItem("admin_sector", admin.sectorId || "all");
+
+    showMessage("Login milkaa'e. Dashboard banamaa jira...");
+    window.location.href = "./admin.html";
+  } catch (error) {
+    console.error("ADMIN LOGIN ERROR:", error);
+    showMessage(translateError(error), true);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Seeni";
+  }
+});
+
+// KIOSK PAGE
+$("kioskButton").addEventListener("click", () => {
+  const selectedSector = $("sectorSelect").value;
+  if (!sectors.includes(selectedSector)) {
+    showMessage("Damee hojii filadhu.", true);
+    return;
+  }
+  localStorage.setItem("kiosk_sector_id", selectedSector);
+  window.location.href = "./kiosk.html";
+});
+</script>
+</body>
+</html>
