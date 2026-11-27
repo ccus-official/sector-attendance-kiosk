@@ -9,10 +9,102 @@
 <body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
 <main class="bg-white rounded-2xl shadow-lg w-full max-w-sm p-6 space-y-4">
   <h1 class="text-xl font-bold text-teal-800 text-center">Mallatteessi</h1>
+  <div id="known" class="hidden space-y-3 text-center">
+    <p class="text-sm text-gray-600">Hojjetaa: <b id="who"></b></p>
+    <button id="fpBtn" class="w-full bg-teal-700 text-white font-semibold rounded-lg p-4 text-lg">🖐 Qubatti tuqii mallatteessi</button>
+    <button id="forget" type="button" class="text-xs text-gray-400 underline">Hojjetaa biraa / foonii kana irraa haqi</button>
+  </div>
   <form id="f" class="space-y-3">
+    <p class="text-xs text-gray-500">Si'a jalqabaaf qofa: koodii fi PIN galchi. Itti aansee qubatti qofa.</p>
     <input id="code" required placeholder="Koodii kee (fkn E001)" class="w-full border rounded-lg p-3 uppercase">
     <input id="pin" required type="password" inputmode="numeric" placeholder="PIN kee" class="w-full border rounded-lg p-3">
-    <button id="btn" class="w-full bg-teal-700 text-white font-semibold rounded-lg p-3">Mallatteessi</button>
+    <button id="btn" class="w-full bg-teal-700 text-white font-semibold rounded-lg p-3">Galmeessii mallatteessi</button>
+  </form>
+  <p id="msg" role="alert" class="text-sm text-center break-words"></p>
+</main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { firebaseConfig } from "./firebase-config.js";
+
+const app = initializeApp(firebaseConfig), auth = getAuth(app), db = getFirestore(app);
+const $ = id => document.getElementById(id);
+const q = new URLSearchParams(location.search), sec = q.get("s"), tok = q.get("t");
+const say = (t, e) => { $("msg").textContent = t; $("msg").className = "text-sm text-center break-words " + (e ? "text-red-600" : "text-green-700"); };
+const today = () => { const d = new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+const bytes = n => crypto.getRandomValues(new Uint8Array(n));
+const b64 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
+const unb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0)).buffer;
+// Qubatti (biometric) foonii: si'a jalqabaa galmeessa, itti aansee mirkaneessa
+async function finger(code) {
+  if (!window.PublicKeyCredential) return false;
+  const key = "cred_" + code, saved = localStorage.getItem(key);
+  if (!saved) {
+    const c = await navigator.credentials.create({ publicKey: { challenge: bytes(32), rp: { name: "Mallatteessa" },
+      user: { id: bytes(16), name: code, displayName: code },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" }, timeout: 60000 } });
+    localStorage.setItem(key, b64(c.rawId));
+  } else {
+    await navigator.credentials.get({ publicKey: { challenge: bytes(32), userVerification: "required", timeout: 60000,
+      allowCredentials: [{ type: "public-key", id: unb64(saved) }] } });
+  }
+  return true;
+}
+if (!sec || !tok) { $("f").classList.add("hidden"); say("QR sirrii miti. Screen waajjira irraa irra deebi'ii scan godhi.", true); }
+
+const KEY = "emp_v1";
+function stored() { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { return null; } }
+function showKnown() {
+  const e = stored();
+  $("known").classList.toggle("hidden", !e); $("f").classList.toggle("hidden", !!e);
+  if (e) $("who").textContent = e.code;
+}
+async function submit(code, pin, remember) {
+  say("Qubatti kee tuqi...");
+  let fp = false;
+  try { fp = await finger(code); }
+  catch (e) { say("Qubatti hin mirkanoofne. Foonii irratti qubatti galmaa'uu fi Chrome fayyadamuu mirkaneessi.", false); say("Qubatti hin mirkanoofne. Irra deebi'ii yaali.", true); return; }
+  try {
+    if (!auth.currentUser) await signInAnonymously(auth);
+    const date = today();
+    await setDoc(doc(db, "attendance", `${sec}_${date}_${code}`), {
+      sectorId: sec, employeeId: code, date, status: "present", method: "qr",
+      pin, token: tok, fingerprint: fp, photo: "", createdAt: serverTimestamp()
+    });
+    if (remember && fp) localStorage.setItem(KEY, JSON.stringify({ code, pin }));
+    $("known").classList.add("hidden"); $("f").classList.add("hidden");
+    say("Argameera ✓ " + new Date().toLocaleTimeString());
+  } catch (e) {
+    say(e.code === "permission-denied"
+      ? "Hin milkoofne: QR yeroon isaa darbeera, Koodii/PIN dogoggora, ykn har'a duraan mallatteeffatteetta."
+      : e.code === "auth/operation-not-allowed" ? "Anonymous login Firebase keessatti hin banamne." : "Dogoggora: " + (e.code || e.message), true);
+  }
+}
+$("f").addEventListener("submit", async ev => {
+  ev.preventDefault(); $("btn").disabled = true;
+  await submit($("code").value.trim().toUpperCase(), $("pin").value.trim(), true);
+  $("btn").disabled = false;
+});
+$("fpBtn").onclick = async () => { $("fpBtn").disabled = true; const e = stored(); await submit(e.code, e.pin, false); $("fpBtn").disabled = false; };
+$("forget").onclick = () => { if (confirm("Foonii kana irraa hojjetaa haquu?")) { localStorage.removeItem(KEY); showKnown(); } };
+if (sec && tok) showKnown();
+</script>
+</head>
+<body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
+<main class="bg-white rounded-2xl shadow-lg w-full max-w-sm p-6 space-y-4">
+  <h1 class="text-xl font-bold text-teal-800 text-center">Mallatteessi</h1>
+  <div id="known" class="hidden space-y-3 text-center">
+    <p class="text-sm text-gray-600">Hojjetaa: <b id="who"></b></p>
+    <button id="fpBtn" class="w-full bg-teal-700 text-white font-semibold rounded-lg p-4 text-lg">🖐 Qubatti tuqii mallatteessi</button>
+    <button id="forget" type="button" class="text-xs text-gray-400 underline">Hojjetaa biraa / foonii kana irraa haqi</button>
+  </div>
+  <form id="f" class="space-y-3">
+    <p class="text-xs text-gray-500">Si'a jalqabaaf qofa: koodii fi PIN galchi. Itti aansee qubatti qofa.</p>
+    <input id="code" required placeholder="Koodii kee (fkn E001)" class="w-full border rounded-lg p-3 uppercase">
+    <input id="pin" required type="password" inputmode="numeric" placeholder="PIN kee" class="w-full border rounded-lg p-3">
+    <button id="btn" class="w-full bg-teal-700 text-white font-semibold rounded-lg p-3">Galmeessii mallatteessi</button>
   </form>
   <p id="msg" role="alert" class="text-sm text-center break-words"></p>
 </main>
