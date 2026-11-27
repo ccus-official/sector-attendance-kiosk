@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="om">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mallatteessi (QR)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
+<main class="bg-white rounded-2xl shadow-lg w-full max-w-sm p-6 space-y-4">
+  <h1 class="text-xl font-bold text-teal-800 text-center">Mallatteessi</h1>
+  <form id="f" class="space-y-3">
+    <input id="code" required placeholder="Koodii kee (fkn E001)" class="w-full border rounded-lg p-3 uppercase">
+    <input id="pin" required type="password" inputmode="numeric" placeholder="PIN kee" class="w-full border rounded-lg p-3">
+    <button id="btn" class="w-full bg-teal-700 text-white font-semibold rounded-lg p-3">Mallatteessi</button>
+  </form>
+  <p id="msg" role="alert" class="text-sm text-center break-words"></p>
+</main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { firebaseConfig } from "./firebase-config.js";
+
+const app = initializeApp(firebaseConfig), auth = getAuth(app), db = getFirestore(app);
+const $ = id => document.getElementById(id);
+const q = new URLSearchParams(location.search), sec = q.get("s"), tok = q.get("t");
+const say = (t, e) => { $("msg").textContent = t; $("msg").className = "text-sm text-center break-words " + (e ? "text-red-600" : "text-green-700"); };
+const today = () => { const d = new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+if (!sec || !tok) { $("f").classList.add("hidden"); say("QR sirrii miti. Screen waajjira irraa irra deebi'ii scan godhi.", true); }
+
+$("f").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  $("btn").disabled = true; say("Mallatteessaa jira...");
+  const code = $("code").value.trim().toUpperCase(), date = today();
+  try {
+    if (!auth.currentUser) await signInAnonymously(auth);
+    await setDoc(doc(db, "attendance", `${sec}_${date}_${code}`), {
+      sectorId: sec, employeeId: code, date, status: "present", method: "qr",
+      pin: $("pin").value.trim(), token: tok, fingerprint: false, photo: "",
+      createdAt: serverTimestamp()
+    });
+    $("f").classList.add("hidden"); say("Argameera ✓ " + new Date().toLocaleTimeString());
+  } catch (e) {
+    say(e.code === "permission-denied"
+      ? "Hin milkoofne: QR yeroon isaa darbeera, Koodii/PIN dogoggora, ykn har'a duraan mallatteeffatteetta."
+      : e.code === "auth/operation-not-allowed" ? "Anonymous login Firebase keessatti hin banamne." : "Dogoggora: " + (e.code || e.message), true);
+  } finally { $("btn").disabled = false; }
+});
+</script>
+</body>
+</html>
