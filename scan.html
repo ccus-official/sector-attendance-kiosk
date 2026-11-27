@@ -27,6 +27,25 @@ const $ = id => document.getElementById(id);
 const q = new URLSearchParams(location.search), sec = q.get("s"), tok = q.get("t");
 const say = (t, e) => { $("msg").textContent = t; $("msg").className = "text-sm text-center break-words " + (e ? "text-red-600" : "text-green-700"); };
 const today = () => { const d = new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+const bytes = n => crypto.getRandomValues(new Uint8Array(n));
+const b64 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
+const unb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0)).buffer;
+// Qubatti (biometric) foonii: si'a jalqabaa galmeessa, itti aansee mirkaneessa
+async function finger(code) {
+  if (!window.PublicKeyCredential) return false;
+  const key = "cred_" + code, saved = localStorage.getItem(key);
+  if (!saved) {
+    const c = await navigator.credentials.create({ publicKey: { challenge: bytes(32), rp: { name: "Mallatteessa" },
+      user: { id: bytes(16), name: code, displayName: code },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" }, timeout: 60000 } });
+    localStorage.setItem(key, b64(c.rawId));
+  } else {
+    await navigator.credentials.get({ publicKey: { challenge: bytes(32), userVerification: "required", timeout: 60000,
+      allowCredentials: [{ type: "public-key", id: unb64(saved) }] } });
+  }
+  return true;
+}
 if (!sec || !tok) { $("f").classList.add("hidden"); say("QR sirrii miti. Screen waajjira irraa irra deebi'ii scan godhi.", true); }
 
 $("f").addEventListener("submit", async ev => {
@@ -34,10 +53,14 @@ $("f").addEventListener("submit", async ev => {
   $("btn").disabled = true; say("Mallatteessaa jira...");
   const code = $("code").value.trim().toUpperCase(), date = today();
   try {
+    say("Qubatti kee tuqi...");
+    let fp = false;
+    try { fp = await finger(code); }
+    catch (e) { say("Qubatti hin mirkanoofne. Irra deebi'ii yaali.", true); $("btn").disabled = false; return; }
     if (!auth.currentUser) await signInAnonymously(auth);
     await setDoc(doc(db, "attendance", `${sec}_${date}_${code}`), {
       sectorId: sec, employeeId: code, date, status: "present", method: "qr",
-      pin: $("pin").value.trim(), token: tok, fingerprint: false, photo: "",
+      pin: $("pin").value.trim(), token: tok, fingerprint: fp, photo: "",
       createdAt: serverTimestamp()
     });
     $("f").classList.add("hidden"); say("Argameera ✓ " + new Date().toLocaleTimeString());
