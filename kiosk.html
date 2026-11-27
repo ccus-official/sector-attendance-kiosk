@@ -50,8 +50,18 @@ let emps = [], stream = null;
 onAuthStateChanged(auth, async user => {
   if (!user) { $("kLogin").classList.remove("hidden"); $("main").classList.add("hidden"); return; }
   try {
-    const k = await getDoc(doc(db, "kiosks", user.uid));
-    if (!k.exists() || k.data().sectorId !== sec) throw new Error("Kiosk kun damee kanaaf hin hayyamamne.");
+    let ok = false;
+const k = await getDoc(doc(db, "kiosks", user.uid));
+if (k.exists() && k.data().sectorId === sec) ok = true;
+if (!ok) {
+  const a = await getDoc(doc(db, "admins", user.uid));
+  if (a.exists() && a.data().active === true) {
+    const d = a.data();
+    ok = (d.role === "sector_admin" && d.sectorId === sec) ||
+         (d.role === "super_admin" && (!d.sectorId || d.sectorId === "all" || d.sectorId === sec));
+  }
+}
+if (!ok) throw new Error("Kiosk kun damee kanaaf hin hayyamamne.");
     $("kLogin").classList.add("hidden"); $("main").classList.remove("hidden");
     const snap = await getDocs(query(collection(db, "employees"), where("sectorId", "==", sec)));
     emps = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.active !== false).sort((a,b) => a.name.localeCompare(b.name));
