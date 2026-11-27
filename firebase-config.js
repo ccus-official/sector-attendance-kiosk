@@ -1,9 +1,9 @@
-// Firebase Console → Project settings → Your apps → Web app irraa kana fudhadhu.
 export const firebaseConfig = {
-  apiKey: "BAAYE_KEE",
-  authDomain: "PROJECT-ID.firebaseapp.com",
-  projectId: "PROJECT-ID",
-  storageBucket: "PROJECT-ID.appspot.com",
-  messagingSenderId: "000000000000",
-  appId: "1:000000000000:web:xxxxxxxx"
+  apiKey: "AIzaSyBKO2r5i5VhcEalGHLZFXBYZSbxl2F7Qis",
+  authDomain: "sector-attendance-kiosk.firebaseapp.com",
+  projectId: "sector-attendance-kiosk",
+  storageBucket: "sector-attendance-kiosk.firebasestorage.app",
+  messagingSenderId: "621740596002",
+  appId: "1:621740596002:web:a79fec28e5fe70107ee37b",
+  measurementId: "G-807F8J5RWQ"
 };
